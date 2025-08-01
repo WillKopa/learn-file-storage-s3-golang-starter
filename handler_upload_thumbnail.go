@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -49,12 +51,23 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	media_type := header.Header.Get("Content-Type")
+	media_type, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type", err)
+		return
+	}
+	if media_type != "image/jpeg" && media_type != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Content-Type must be image/jpeg or image/png", nil)
+		return
+	}
+
 	extension := strings.ReplaceAll(media_type, "/", ".")
 	thumbnail_path := filepath.Join(cfg.assetsRoot, videoID.String())
 	thumbnail_path += fmt.Sprintf(".%s", extension)
 	new_file, err := os.Create(thumbnail_path)
 	thumbnail_url := fmt.Sprintf("http://localhost:%s/%s", cfg.port, thumbnail_path)
+	// This is server side cache busting
+	// thumbnail_url := fmt.Sprintf("http://localhost:%s/%s?v=%d", cfg.port, thumbnail_path, time.Now().Unix())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "unable to save thumbnail", err)
 		return

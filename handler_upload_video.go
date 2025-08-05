@@ -97,8 +97,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Error opening processed video", err)
 		return
 	}
-
-
+	defer processed_file.Close()
 
 	ratio, err := getVideoAspectRatio(processed_file.Name())
 	if err != nil {
@@ -106,35 +105,44 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Error getting video aspect ratio", err)
 		return
 	}
+
 	prefix_key := "landscape"
 	if ratio == "9:16" {
 		prefix_key = "portrait"
 	} else if ratio == "other" {
 		prefix_key = "other"
 	}
-	prefix_key = "/" + prefix_key + "/"
+	prefix_key = "/" + prefix_key
 
 	random_bytes := make([]byte, 32)
 	rand.Read(random_bytes)
-	param_key := prefix_key + base64.RawURLEncoding.EncodeToString(random_bytes) + ".mp4"
+	param_key := base64.RawURLEncoding.EncodeToString(random_bytes) + prefix_key + ".mp4"
 	params := s3.PutObjectInput{
 		Bucket: &cfg.s3Bucket,
 		Key: &param_key,
 		Body: processed_file,
 		ContentType: &mime_type,
 	}
-	cfg.s3Client.PutObject(r.Context(), &params)
+	_, err = cfg.s3Client.PutObject(r.Context(), &params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error saving data to s3 client", err)
+		return
+	}
 
-	videoUrl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, param_key)
+	videoUrl := fmt.Sprintf("%s,%s", cfg.s3Bucket, param_key)
 	meta_data.VideoURL = &videoUrl
-
+	log.Printf("video url: %s", videoUrl)
 	err = cfg.db.UpdateVideo(meta_data)
-
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error adding thumbnail to video", err)
 		return
 	}
 
+	signed_video, err := cfg.dbVideoToSignedVideo(meta_data)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error converting to signed video", err)
+		return
+	}
 
-	respondWithJSON(w, http.StatusOK, meta_data)
+	respondWithJSON(w, http.StatusOK, signed_video)
 }

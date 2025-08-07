@@ -95,11 +95,6 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error getting presigned video", err)
-		return
-	}
-
 
 	respondWithJSON(w, http.StatusOK, video)
 }
